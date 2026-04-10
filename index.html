@@ -1635,6 +1635,36 @@ function setTab(t) {
 function pkgsOf(gid) { return DB.pkgs.filter(p=>Number(p.gid)===Number(gid)); }
 function gameById(id) { return DB.games.find(g=>Number(g.id)===Number(id)); }
 
+let pkgSortOrder = 'asc'; // 'asc' | 'desc'
+
+function sortPkgs(pkgs) {
+  return pkgs.slice().sort((a,b) => {
+    const aNum = /^\d/.test(a.name.trim());
+    const bNum = /^\d/.test(b.name.trim());
+    // Numeric-named first, text-named after
+    if(aNum !== bNum) return aNum ? -1 : 1;
+    if(aNum && bNum) {
+      // Both numeric: sort by leading number
+      const aVal = parseFloat(a.name) || 0;
+      const bVal = parseFloat(b.name) || 0;
+      return pkgSortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+    }
+    // Both text: sort by price
+    return pkgSortOrder === 'asc' ? a.price - b.price : b.price - a.price;
+  });
+}
+
+function togglePkgSort() {
+  pkgSortOrder = pkgSortOrder === 'asc' ? 'desc' : 'asc';
+  render();
+}
+
+function sortToggleBtn() {
+  return `<button class="btn btn-sm" onclick="togglePkgSort()" style="font-size:12px;padding:4px 10px;display:flex;align-items:center;gap:4px">
+    ${pkgSortOrder === 'asc' ? '↑ น้อย→มาก' : '↓ มาก→น้อย'}
+  </button>`;
+}
+
 /* ─── RENDER ─── */
 function render() {
   document.getElementById('main').innerHTML =
@@ -1761,7 +1791,7 @@ function renderGameSelect() {
 
 function renderPkgSelect() {
   const g = gameById(selGame);
-  const pkgs = pkgsOf(g.id).slice().sort((a,b) => a.price - b.price);
+  const pkgs = sortPkgs(pkgsOf(g.id));
 
   const pkgsWithBpu = pkgs.map(p=>{ const u=extractUnit(p.name); return {...p, _u:u, bpu: u>0&&p.price>0 ? p.price/u : Infinity}; });
   const minBpu = Math.min(...pkgsWithBpu.filter(p=>p.bpu!==Infinity).map(p=>p.bpu));
@@ -1807,9 +1837,12 @@ function renderPkgSelect() {
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div style="font-size:12px;color:var(--text3)">กดแพคเกจเพื่อเลือกลิ้งค์และเติม</div>
-        <div class="view-toggle">
-          <button class="view-toggle-btn ${pkgViewMode==='list'?'active':''}" onclick="pkgViewMode='list';render()" title="รายการ">☰</button>
-          <button class="view-toggle-btn ${pkgViewMode==='grid'?'active':''}" onclick="pkgViewMode='grid';render()" title="กริด">⊞</button>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${sortToggleBtn()}
+          <div class="view-toggle">
+            <button class="view-toggle-btn ${pkgViewMode==='list'?'active':''}" onclick="pkgViewMode='list';render()" title="รายการ">☰</button>
+            <button class="view-toggle-btn ${pkgViewMode==='grid'?'active':''}" onclick="pkgViewMode='grid';render()" title="กริด">⊞</button>
+          </div>
         </div>
       </div>
       <div class="pkg-list animate-in ${pkgViewMode==='grid'?'pkg-grid':''}">${cards.length ? cards : emptyState('📦','ยังไม่มีแพคเกจ')}</div>
@@ -2877,11 +2910,10 @@ function renderCompare() {
   const g = gameById(compareGame);
   if(!g) { compareGame=null; return renderCompare(); }
 
-  const allPkgs = pkgsOf(g.id).slice().sort((a,b)=>a.price-b.price);
-  // Split: numeric-leading names first, text-leading names after
+  const allPkgs = sortPkgs(pkgsOf(g.id));
   const numericPkgs = allPkgs.filter(p => /^\d/.test(p.name.trim()));
   const textPkgs    = allPkgs.filter(p => !/^\d/.test(p.name.trim()));
-  const pkgs = [...numericPkgs, ...textPkgs];
+  const pkgs = allPkgs;
   const pkgsWithBpu = pkgs.map(p => {
     const u = extractUnit(p.name);
     return {...p, _u:u, bpuSell: u>0&&p.price>0 ? p.price/u : null, bpuCost: u>0&&p.cost>0 ? p.cost/u : null};
@@ -3141,7 +3173,7 @@ function renderManageDetail() {
   if(!g) { manageGame=null; return renderManageGameList(); }
 
   // Sort pkgs by price ascending
-  const pkgs = pkgsOf(g.id).slice().sort((a,b) => a.price - b.price);
+  const pkgs = sortPkgs(pkgsOf(g.id));
 
   const gRev = pkgs.reduce((s,p)=>s+p.price,0);
   const gProfit = pkgs.reduce((s,p)=>s+(p.price-p.cost),0);
@@ -3206,6 +3238,7 @@ function renderManageDetail() {
         <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
           <button class="btn btn-primary btn-sm" onclick="openAddPkg(${g.id})">+ แพค</button>
           <button class="btn btn-sm" onclick="openScanBanner(${g.id})" style="color:var(--yellow);border-color:rgba(255,209,102,0.3)">📷 สแกน</button>
+          ${sortToggleBtn()}
           <button class="btn btn-sm" onclick="openEditGame(${g.id})">✏️</button>
           <button class="btn btn-sm btn-danger" onclick="delGame(${g.id})">🗑️</button>
         </div>
@@ -3463,28 +3496,30 @@ function initPaymentRows(arr) {
 function appendPaymentRow(label='', value='') {
   const c = document.getElementById('payment-rows');
   if(!c) return;
-  // Remove placeholder
+  // Remove placeholder text
   [...c.children].forEach(ch => { if(!ch.classList.contains('payment-row')) ch.remove(); });
-  const div = document.createElement('div');
-  div.className = 'payment-row';
-  div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center';
 
   const presetBtns = PAYMENT_PRESETS.map(p =>
-    `<button class="btn btn-sm" onclick="this.closest('.payment-row').querySelector('.pm-label').value='${p}'" style="font-size:10px;padding:2px 7px">${p}</button>`
+    `<button class="btn btn-sm" onclick="setPmLabel(this,'${p}')" style="font-size:10px;padding:2px 7px">${p}</button>`
   ).join('');
 
+  const div = document.createElement('div');
+  div.className = 'payment-row';
+  div.style.cssText = 'background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px';
   div.innerHTML = `
-    <input class="form-input pm-label" value="${escH(label)}" placeholder="ช่องทาง เช่น พร้อมเพย์" style="width:130px;flex:none">
-    <input class="form-input pm-value" value="${escH(value)}" placeholder="เลขบัญชี / เบอร์" style="flex:1">
-    <button class="row-del-btn" onclick="this.closest('.payment-row').remove()" style="width:28px;height:36px">✕</button>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">${presetBtns}</div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input class="form-input pm-label" value="${escH(label)}" placeholder="ช่องทาง เช่น พร้อมเพย์" style="width:130px;flex:none">
+      <input class="form-input pm-value" value="${escH(value)}" placeholder="เลขบัญชี / เบอร์" style="flex:1">
+      <button class="row-del-btn" onclick="this.closest('.payment-row').remove()" style="width:28px;height:36px">✕</button>
+    </div>
   `;
   c.appendChild(div);
+}
 
-  // Add quick-select below
-  const quick = document.createElement('div');
-  quick.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;margin-left:0';
-  quick.innerHTML = presetBtns;
-  c.appendChild(quick);
+function setPmLabel(btn, label) {
+  const input = btn.closest('.payment-row').querySelector('.pm-label');
+  if(input) { input.value = label; input.focus(); }
 }
 
 function addPaymentRow() {
@@ -3811,7 +3846,7 @@ function toggleCombo() {
 
 function renderComboPkgList() {
   const gid = editPgid;
-  const pkgs = pkgsOf(gid).slice().sort((a,b)=>a.price-b.price);
+  const pkgs = sortPkgs(pkgsOf(gid));
   // Exclude current pkg being edited
   const available = pkgs.filter(p => p.id !== editPid);
   const list = document.getElementById('combo-pkg-list');
